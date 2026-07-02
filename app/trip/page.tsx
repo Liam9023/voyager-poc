@@ -6,10 +6,12 @@ import Link from "next/link";
 import { NOOSA_ITINERARY as IT } from "@/lib/itinerary";
 import { BOOKINGS } from "@/lib/bookings";
 import { useTrip } from "@/lib/store";
-import { SectionLabel, TYPE_LABEL } from "@/components/ui";
-import ActivityRow from "@/components/ActivityRow";
+import { SectionLabel, TYPE_ICON, TYPE_LABEL } from "@/components/ui";
+import DayCard from "@/components/DayCard";
 import AskPanel from "@/components/AskPanel";
-import type { Activity } from "@/types";
+import BookLink from "@/components/BookLink";
+import { bookingUrlForBooking } from "@/lib/deep-links";
+import type { ActivityType, Booking } from "@/types";
 
 type Tab = "itinerary" | "bookings" | "ask" | "trip";
 
@@ -26,11 +28,18 @@ function TripInner() {
   const router = useRouter();
   const { unlocked, ready } = useTrip();
 
-  const initial = (params.get("tab") as Tab) || "itinerary";
+  const urlTab = (params.get("tab") as Tab) || "itinerary";
   const about = params.get("about");
+  const aboutDay = params.get("aboutDay");
   const [tab, setTab] = useState<Tab>(
-    ["itinerary", "bookings", "ask", "trip"].includes(initial) ? initial : "itinerary",
+    ["itinerary", "bookings", "ask", "trip"].includes(urlTab) ? urlTab : "itinerary",
   );
+
+  // Links like "Tell me more" / "Ask about this day" navigate to /trip?tab=ask&... while
+  // already mounted on /trip — sync the tab whenever the URL's tab param changes under us.
+  useEffect(() => {
+    if (["itinerary", "bookings", "ask", "trip"].includes(urlTab)) setTab(urlTab);
+  }, [urlTab]);
 
   // Gentle gate: the trip experience is post-unlock.
   useEffect(() => {
@@ -64,7 +73,7 @@ function TripInner() {
       <div className="flex-1 overflow-hidden">
         {tab === "itinerary" && <ItineraryTab />}
         {tab === "bookings" && <BookingsTab />}
-        {tab === "ask" && <AskTab about={about} />}
+        {tab === "ask" && <AskTab about={about} aboutDay={aboutDay} />}
         {tab === "trip" && <TripToolsTab />}
       </div>
 
@@ -129,27 +138,34 @@ function ItineraryTab() {
             key={d.day_number}
             className="mb-2.5 overflow-hidden rounded-[16px] border border-border bg-surface"
           >
-            <button
-              onClick={() => setOpen(isOpen ? -1 : d.day_number)}
-              className="flex w-full items-center justify-between px-3.5 py-3 text-left"
-            >
-              <div>
-                <div className="text-[9px] font-bold uppercase tracking-wide text-text-light">
-                  Day {d.day_number} · {d.weekday.slice(0, 3)} {d.date.slice(8)} Nov
+            <div className="flex w-full items-center justify-between px-3.5 py-3">
+              <button
+                onClick={() => setOpen(isOpen ? -1 : d.day_number)}
+                className="flex flex-1 items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-[9px] font-bold uppercase tracking-wide text-text-light">
+                    Day {d.day_number} · {d.weekday.slice(0, 3)} {d.date.slice(8)} Nov
+                  </div>
+                  <div className="font-heading text-[14px] font-bold text-text">{d.title}</div>
+                  <div className="text-[10px] text-text-mid">{d.location}</div>
                 </div>
-                <div className="font-heading text-[14px] font-bold text-text">{d.title}</div>
-                <div className="text-[10px] text-text-mid">{d.location}</div>
-              </div>
-              <span className={`text-text-light transition-transform ${isOpen ? "rotate-90" : ""}`}>
-                ›
-              </span>
-            </button>
+                <span className={`text-text-light transition-transform ${isOpen ? "rotate-90" : ""}`}>
+                  ›
+                </span>
+              </button>
+              <Link
+                href={`/trip?tab=ask&aboutDay=${d.day_number}`}
+                className="ml-2 shrink-0 rounded-full border border-accent bg-accent-light px-2.5 py-1.5 text-[10px] font-bold text-accent"
+                title={`Ask Voyager about Day ${d.day_number}`}
+              >
+                💬 Ask about this day
+              </Link>
+            </div>
             {isOpen && (
               <div className="border-t border-border px-3.5 py-3 animate-fade-in-fast">
                 <p className="mb-3 text-[11.5px] leading-relaxed text-text-mid">{d.summary}</p>
-                {d.activities.map((a: Activity) => (
-                  <ActivityRow key={a.id} activity={a} editable tellMore />
-                ))}
+                <DayCard day={d} />
               </div>
             )}
           </div>
@@ -161,20 +177,26 @@ function ItineraryTab() {
 
 /* ---------------- Bookings tab ---------------- */
 function BookingsTab() {
-  const { extraBooked, markBooked } = useTrip();
+  const { extraBooked, markBooked, manualBookings } = useTrip();
   const [view, setView] = useState<"day" | "all">("day");
   const [selectedDay, setSelectedDay] = useState<number>(1);
+  const [showAddForm, setShowAddForm] = useState(false);
 
-  const isConfirmed = (b: (typeof BOOKINGS)[number]) =>
+  const allBookings = [...BOOKINGS, ...manualBookings];
+
+  const isConfirmed = (b: (typeof allBookings)[number]) =>
     b.status === "confirmed" || extraBooked.includes(b.id);
 
-  const confirmed = BOOKINGS.filter(isConfirmed).length;
-  const toBook = BOOKINGS.length - confirmed;
+  const confirmed = allBookings.filter(isConfirmed).length;
+  const toBook = allBookings.length - confirmed;
 
-  const days = Array.from(new Set(BOOKINGS.map((b) => b.day))).sort((a, b) => a - b);
-  const dayBookings = BOOKINGS.filter((b) => b.day === selectedDay);
+  const days = Array.from(new Set(allBookings.map((b) => b.day))).sort((a, b) => a - b);
+  const dayBookings = allBookings
+    .filter((b) => b.day === selectedDay)
+    .sort((a, b) => (a.manual === b.manual ? 0 : a.manual ? 1 : -1));
+  const sortedAll = [...allBookings].sort((a, b) => a.day - b.day);
 
-  function Card({ b }: { b: (typeof BOOKINGS)[number] }) {
+  function Card({ b }: { b: (typeof allBookings)[number] }) {
     const done = isConfirmed(b);
     return (
       <div
@@ -190,21 +212,32 @@ function BookingsTab() {
           {done ? "✓" : b.icon}
         </div>
         <div className="flex-1">
-          <div className="text-[12px] font-bold text-text">{b.title}</div>
+          <div className="flex items-center gap-1.5">
+            <div className="text-[12px] font-bold text-text">{b.title}</div>
+            {b.manual && (
+              <span className="rounded-full bg-secondary-light px-1.5 py-px text-[8px] font-bold text-secondary">
+                Added by you
+              </span>
+            )}
+          </div>
           <div className="text-[10px] text-text-mid">{b.detail}</div>
-          {(b.ref || (done && !b.ref)) && (
-            <div className="mt-0.5 font-mono text-[9px] text-text-light">
-              Ref: {b.ref ?? `VYG-${b.id.slice(-5).toUpperCase()}`}
-            </div>
+          {b.ref ? (
+            <div className="mt-0.5 font-mono text-[9px] text-text-light">Ref: {b.ref}</div>
+          ) : (
+            done &&
+            !b.manual && (
+              <div className="mt-0.5 font-mono text-[9px] text-text-light">
+                Ref: VYG-{b.id.slice(-5).toUpperCase()}
+              </div>
+            )
           )}
         </div>
         {!done && (
-          <button
-            onClick={() => markBooked(b.id)}
-            className="shrink-0 self-center rounded-lg bg-accent px-3 py-1 text-[10px] font-bold text-white"
-          >
-            Book
-          </button>
+          <BookLink
+            href={bookingUrlForBooking(b)}
+            onBook={() => markBooked(b.id)}
+            className="self-center"
+          />
         )}
       </div>
     );
@@ -242,7 +275,7 @@ function BookingsTab() {
         {view === "day" && (
           <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5">
             {days.map((dnum) => {
-              const hasUnbooked = BOOKINGS.some((b) => b.day === dnum && !isConfirmed(b));
+              const hasUnbooked = allBookings.some((b) => b.day === dnum && !isConfirmed(b));
               const sel = selectedDay === dnum;
               return (
                 <button
@@ -301,9 +334,9 @@ function BookingsTab() {
             </div>
           </>
         ) : (
-          BOOKINGS.map((b, i) => (
+          sortedAll.map((b, i) => (
             <div key={b.id}>
-              {(i === 0 || BOOKINGS[i - 1].day !== b.day) && (
+              {(i === 0 || sortedAll[i - 1].day !== b.day) && (
                 <div className="mb-1.5 mt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-text-light first:mt-0">
                   Day {b.day} · {Number(IT.days[b.day - 1].date.slice(8))} Nov
                 </div>
@@ -311,6 +344,17 @@ function BookingsTab() {
               <Card b={b} />
             </div>
           ))
+        )}
+
+        {showAddForm ? (
+          <AddManualBooking onDone={() => setShowAddForm(false)} />
+        ) : (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[14px] border border-dashed border-accent bg-accent-light/50 py-2.5 text-[11px] font-bold text-accent transition-colors hover:bg-accent-light"
+          >
+            ＋ Add booking manually
+          </button>
         )}
 
         {/* Add-ons nudge */}
@@ -331,21 +375,153 @@ function BookingsTab() {
   );
 }
 
+const BOOKING_TYPES: (ActivityType | "other")[] = [
+  "flight",
+  "hotel",
+  "activity",
+  "dining",
+  "car",
+  "rail",
+  "transfer",
+  "other",
+];
+const TYPE_ICON_WITH_OTHER: Record<ActivityType | "other", string> = { ...TYPE_ICON, other: "📌" };
+const TYPE_LABEL_WITH_OTHER: Record<ActivityType | "other", string> = { ...TYPE_LABEL, other: "Other" };
+
+function AddManualBooking({ onDone }: { onDone: () => void }) {
+  const { addManualBooking } = useTrip();
+  const [type, setType] = useState<ActivityType | "other">("activity");
+  const [title, setTitle] = useState("");
+  const [detail, setDetail] = useState("");
+  const [day, setDay] = useState(1);
+  const [ref, setRef] = useState("");
+
+  function submit() {
+    if (!title.trim()) return;
+    const booking: Booking = {
+      id: `manual-${day}-${Math.floor(Math.random() * 1e6)}`,
+      type,
+      icon: TYPE_ICON_WITH_OTHER[type],
+      title: title.trim(),
+      detail: detail.trim() || `Day ${day}`,
+      status: "confirmed",
+      ref: ref.trim() || null,
+      day,
+      manual: true,
+    };
+    addManualBooking(booking);
+    onDone();
+  }
+
+  return (
+    <div className="mt-2 rounded-[16px] border border-accent bg-accent-light/40 p-3 animate-fade-in-fast">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] font-bold text-text">Add a booking</div>
+        <button onClick={onDone} className="text-[11px] text-text-light">
+          ✕
+        </button>
+      </div>
+
+      <div className="mb-2">
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">Type</div>
+        <div className="flex flex-wrap gap-1.5">
+          {BOOKING_TYPES.map((t) => (
+            <button
+              key={t}
+              onClick={() => setType(t)}
+              className={`rounded-full px-2.5 py-1 text-[10.5px] font-semibold ${
+                type === t ? "bg-accent text-white" : "bg-tag text-text-mid"
+              }`}
+            >
+              {TYPE_ICON_WITH_OTHER[t]} {TYPE_LABEL_WITH_OTHER[t]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-2">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title — e.g. Noosa Marina sunset cruise"
+          className="w-full rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+      </div>
+      <div className="mb-2">
+        <input
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+          placeholder="Detail — e.g. 6pm · booked via operator's site"
+          className="w-full rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+      </div>
+
+      <div className="mb-2">
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">
+          Which day
+        </div>
+        <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5">
+          {IT.days.map((d) => (
+            <button
+              key={d.day_number}
+              onClick={() => setDay(d.day_number)}
+              className={`min-w-[36px] shrink-0 rounded-[8px] px-2 py-1 text-center text-[11px] font-bold ${
+                day === d.day_number ? "bg-accent text-white" : "bg-tag text-text-mid"
+              }`}
+            >
+              {d.day_number}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <input
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          placeholder="Reference number (optional)"
+          className="w-full rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+      </div>
+
+      <button
+        onClick={submit}
+        disabled={!title.trim()}
+        className="w-full rounded-[12px] bg-accent py-2.5 text-[12px] font-bold text-white disabled:opacity-40"
+      >
+        Save booking
+      </button>
+    </div>
+  );
+}
+
 /* ---------------- Ask tab ---------------- */
-function AskTab({ about }: { about: string | null }) {
+function AskTab({ about, aboutDay }: { about: string | null; aboutDay: string | null }) {
   const activity = about
     ? IT.days.flatMap((d) => d.activities).find((a) => a.id === about)
     : undefined;
+  const day = !activity && aboutDay ? IT.days.find((d) => d.day_number === Number(aboutDay)) : undefined;
 
-  const seed = activity ? `Tell me more about ${activity.title}.` : undefined;
+  const seed = activity
+    ? `Tell me more about ${activity.title}.`
+    : day
+      ? `What should I know about Day ${day.day_number} — ${day.title}?`
+      : undefined;
   const elementContext = activity
     ? `${activity.title} (${TYPE_LABEL[activity.type]}) — ${activity.description}`
-    : undefined;
+    : day
+      ? `Day ${day.day_number} (${day.weekday} ${day.date}) — ${day.title}, ${day.location}. Planned: ${day.activities.map((a) => a.title).join("; ")}.`
+      : undefined;
 
-  // Re-mount AskPanel when the "about" target changes so the seed re-fires.
+  // Re-mount AskPanel when the target changes so the seed re-fires.
   return (
     <div className="h-full">
-      <AskPanel key={about ?? "open"} mode="postunlock" seed={seed} elementContext={elementContext} />
+      <AskPanel
+        key={about ?? aboutDay ?? "open"}
+        mode="postunlock"
+        seed={seed}
+        elementContext={elementContext}
+      />
     </div>
   );
 }
@@ -593,30 +769,39 @@ function Tools() {
 
 function Settings() {
   const { reset } = useTrip();
-  const rows: [string, string, string][] = [
+  const rows: [string, string, string, string?][] = [
+    ["🧭", "Preferences", "Home airport, dietary needs, notes Voyager always uses", "/settings"],
     ["👥", "Travellers", "Liam (owner) · Sarah · 2 on this trip"],
     ["📤", "Import a booking", "Share a confirmation to update your trip"],
     ["📱", "Invite to trip", "Add a travel companion"],
     ["🔔", "Notifications", "Manage alert preferences"],
     ["💱", "Currency display", "NZD"],
     ["✏️", "Edit itinerary", "Add, remove or swap any element"],
-    ["👤", "Profile", "Account details"],
     ["❓", "Help & support", ""],
   ];
   return (
     <>
-      {rows.map(([icon, title, desc]) => (
-        <div key={title} className="flex items-center gap-2.5 border-b border-border py-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-tag text-sm">
-            {icon}
+      {rows.map(([icon, title, desc, href]) => {
+        const row = (
+          <div className="flex items-center gap-2.5 border-b border-border py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-tag text-sm">
+              {icon}
+            </div>
+            <div className="flex-1">
+              <div className="text-[12px] font-semibold text-text">{title}</div>
+              {desc && <div className="text-[10px] text-text-mid">{desc}</div>}
+            </div>
+            <span className="text-base text-text-light">›</span>
           </div>
-          <div className="flex-1">
-            <div className="text-[12px] font-semibold text-text">{title}</div>
-            {desc && <div className="text-[10px] text-text-mid">{desc}</div>}
-          </div>
-          <span className="text-base text-text-light">›</span>
-        </div>
-      ))}
+        );
+        return href ? (
+          <Link key={title} href={href}>
+            {row}
+          </Link>
+        ) : (
+          <div key={title}>{row}</div>
+        );
+      })}
       {/* POC convenience: reset demo state */}
       <button
         onClick={reset}

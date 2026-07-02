@@ -42,19 +42,36 @@ export default function Home() {
           <Logo />
           <div className="font-heading text-[16px] font-bold text-text">Good evening, Liam</div>
         </div>
-        <button
-          onClick={() => setShowAlerts((s) => !s)}
-          className="relative rounded-full p-1.5 transition-colors hover:bg-surface-alt"
-          aria-label="Alerts"
-        >
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <path d="M11 2C7.5 2 5 4.5 5 8v5l-2 2v1h16v-1l-2-2V8c0-3.5-2.5-6-6-6z" stroke="#1A1E22" strokeWidth="1.5" />
-            <path d="M9 18c0 1.1.9 2 2 2s2-.9 2-2" stroke="#1A1E22" strokeWidth="1.5" />
-          </svg>
-          <span className="absolute right-0.5 top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-amber text-[7px] font-extrabold text-white">
-            3
-          </span>
-        </button>
+        <div className="flex items-center gap-1">
+          <Link
+            href="/settings"
+            className="rounded-full p-1.5 transition-colors hover:bg-surface-alt"
+            aria-label="Preferences"
+          >
+            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+              <circle cx="11" cy="11" r="2.6" stroke="#1A1E22" strokeWidth="1.5" />
+              <path
+                d="M11 2.5v2.2M11 16.3v2.2M18.5 11h-2.2M5.7 11H3.5M16.4 5.6l-1.5 1.5M7.1 14.9l-1.5 1.5M16.4 16.4l-1.5-1.5M7.1 7.1 5.6 5.6"
+                stroke="#1A1E22"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </Link>
+          <button
+            onClick={() => setShowAlerts((s) => !s)}
+            className="relative rounded-full p-1.5 transition-colors hover:bg-surface-alt"
+            aria-label="Alerts"
+          >
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <path d="M11 2C7.5 2 5 4.5 5 8v5l-2 2v1h16v-1l-2-2V8c0-3.5-2.5-6-6-6z" stroke="#1A1E22" strokeWidth="1.5" />
+              <path d="M9 18c0 1.1.9 2 2 2s2-.9 2-2" stroke="#1A1E22" strokeWidth="1.5" />
+            </svg>
+            <span className="absolute right-0.5 top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-amber text-[7px] font-extrabold text-white">
+              3
+            </span>
+          </button>
+        </div>
       </header>
 
       {showAlerts && (

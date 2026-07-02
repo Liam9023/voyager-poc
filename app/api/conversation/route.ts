@@ -1,12 +1,15 @@
 import { NextRequest } from "next/server";
 import { streamAI, type ChatTurn } from "@/lib/ai-service";
-import { CONVERSATION_SYSTEM } from "@/lib/prompts";
+import { CONVERSATION_SYSTEM, buildPreferencesContext } from "@/lib/prompts";
+import type { Preferences } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 interface ConversationBody {
   messages: ChatTurn[];
+  // Optional: the traveller's saved Settings > Preferences (localStorage, sent by the client).
+  preferences?: Preferences;
 }
 
 export async function POST(req: NextRequest) {
@@ -22,7 +25,10 @@ export async function POST(req: NextRequest) {
     return new Response("No messages", { status: 400 });
   }
 
-  const stream = streamAI("conversation", CONVERSATION_SYSTEM, messages);
+  const system = body.preferences
+    ? CONVERSATION_SYSTEM + buildPreferencesContext(body.preferences)
+    : CONVERSATION_SYSTEM;
+  const stream = streamAI("conversation", system, messages);
 
   return new Response(stream, {
     headers: {

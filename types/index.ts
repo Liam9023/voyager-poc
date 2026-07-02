@@ -9,9 +9,18 @@ export type ActivityType =
   | "dining"
   | "transfer";
 
+/** Coarse geographic zone used for lightweight "unrealistic travel distance" conflict checks. */
+export type Area =
+  | "noosa_heads"
+  | "noosa_river"
+  | "hinterland"
+  | "noosa_marina"
+  | "sunshine_beach"
+  | "airport";
+
 export interface Activity {
   id: string;
-  time_of_day: string; // "09:00" or "morning"
+  time_of_day: string; // "09:00" or "morning"/"afternoon"/"evening"
   type: ActivityType;
   title: string;
   description: string; // specific, locally informed detail
@@ -20,6 +29,8 @@ export interface Activity {
   estimated_cost_nzd?: number;
   /** Marks the venue/price-bearing recommendation that anchors the day (used for emphasis). */
   highlight?: boolean;
+  /** Coarse zone for travel-distance conflict checks; defaults to the day's own location if unset. */
+  area?: Area;
 }
 
 export interface Day {
@@ -69,6 +80,8 @@ export interface Booking {
   ref: string | null;
   day: number;
   cost_nzd?: number;
+  /** True for bookings the traveller entered by hand (Bookings tab > Add manually). */
+  manual?: boolean;
 }
 
 export interface AddOn {
@@ -87,4 +100,48 @@ export interface AddOn {
 export interface AskMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+export type DietaryTag = "vegetarian" | "vegan" | "gluten_free";
+
+export interface Preferences {
+  homeAirport: string;
+  preferredAirlines: string;
+  dietary: DietaryTag[];
+  allergies: string;
+  foodDislikes: string;
+  accessibilityNeeds: string;
+  generalNotes: string;
+}
+
+/** Density of each day — see POC_followup_prompt.md item 2. */
+export type Pacing = "relaxed" | "balanced" | "packed";
+
+/** How much Voyager decides vs. the traveller, for Swap/Add/Remove-replacement flows. */
+export type DecisionStyle = "decide_for_me" | "show_options" | "know_what_i_want";
+
+/** An activity the traveller added themselves, placed onto a specific day. */
+export interface PlacedActivity extends Activity {
+  day_number: number;
+  /** True once the id was generated client-side (all user-added activities). */
+  user_added: true;
+}
+
+export type ConflictKind = "overlap" | "fixed_clash" | "distance";
+
+export interface ConflictIssue {
+  kind: ConflictKind;
+  /** Short headline, e.g. "That overlaps with your Coastal Track walk". */
+  message: string;
+  /** Longer explanation shown in the conflict sheet. */
+  detail: string;
+  /** The activity ids involved, for highlighting. */
+  activityIds: string[];
+  /** Optional one-tap fix — shifts one of the involved activities to a clearer time. */
+  proposal?: {
+    activityId: string;
+    activityTitle: string;
+    newTime: string;
+    label: string;
+  };
 }

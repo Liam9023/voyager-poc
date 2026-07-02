@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePreferences, hasAnyPreferences } from "@/lib/preferences-store";
 import type { AskMessage } from "@/types";
 
 interface Prompt {
@@ -109,6 +110,7 @@ export default function AskPanel({
   elementContext?: string;
   initialAssistant?: string;
 }) {
+  const { preferences } = usePreferences();
   const [messages, setMessages] = useState<AskMessage[]>(
     initialAssistant ? [{ role: "assistant", content: initialAssistant }] : [],
   );
@@ -141,7 +143,12 @@ export default function AskPanel({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages, mode, elementContext }),
+        body: JSON.stringify({
+          messages: nextMessages,
+          mode,
+          elementContext,
+          preferences: hasAnyPreferences(preferences) ? preferences : undefined,
+        }),
       });
       if (!res.body) throw new Error("No response");
       const reader = res.body.getReader();

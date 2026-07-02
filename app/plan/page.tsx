@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { AskMessage } from "@/types";
+import type { AskMessage, DecisionStyle, Pacing } from "@/types";
 import { Logo, Chip, Button } from "@/components/ui";
+import { usePreferences, hasAnyPreferences } from "@/lib/preferences-store";
+import { useTrip } from "@/lib/store";
+import { inferPacingAndDecisionStyle } from "@/lib/infer-preferences";
 
 type Screen =
   | "welcome"
@@ -17,14 +20,46 @@ type Screen =
 export default function PlanPage() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const router = useRouter();
+  const { setPacing, setDecisionStyle } = useTrip();
+
+  // Pacing & decision style (POC_followup_prompt.md item 2) — lifted here so they survive
+  // navigating between onboarding screens (e.g. Form2 -> "+ Add more detail" -> DetailedForm).
+  const [pacing, setLocalPacing] = useState<Pacing>("balanced");
+  const [decisionStyle, setLocalDecisionStyle] = useState<DecisionStyle>("show_options");
+
+  function finish() {
+    setPacing(pacing);
+    setDecisionStyle(decisionStyle);
+    setScreen("building");
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
       {screen === "welcome" && <Welcome go={setScreen} />}
       {screen === "form1" && <Form1 go={setScreen} />}
-      {screen === "form2" && <Form2 go={setScreen} />}
-      {screen === "detailed" && <DetailedForm go={setScreen} />}
-      {screen === "convo" && <Conversation go={setScreen} />}
+      {screen === "form2" && (
+        <Form2
+          go={setScreen}
+          pacing={pacing}
+          setPacing={setLocalPacing}
+          decisionStyle={decisionStyle}
+          setDecisionStyle={setLocalDecisionStyle}
+          onFinish={finish}
+        />
+      )}
+      {screen === "detailed" && <DetailedForm go={setScreen} onFinish={finish} />}
+      {screen === "convo" && (
+        <Conversation
+          go={setScreen}
+          onFinish={(inferred) => {
+            if (inferred.pacing) setLocalPacing(inferred.pacing);
+            if (inferred.decisionStyle) setLocalDecisionStyle(inferred.decisionStyle);
+            setPacing(inferred.pacing ?? pacing);
+            setDecisionStyle(inferred.decisionStyle ?? decisionStyle);
+            setScreen("building");
+          }}
+        />
+      )}
       {screen === "building" && <Building onDone={() => router.push("/preview")} />}
     </div>
   );
@@ -159,7 +194,84 @@ function Form1({ go }: { go: (s: Screen) => void }) {
   );
 }
 
-function Form2({ go }: { go: (s: Screen) => void }) {
+const PACING_OPTIONS: { value: Pacing; label: string; hint: string }[] = [
+  { value: "relaxed", label: "Relaxed", hint: "2-3 things a day" },
+  { value: "balanced", label: "Balanced", hint: "4-5 things a day" },
+  { value: "packed", label: "Packed", hint: "6+ things a day" },
+];
+
+const DECISION_OPTIONS: { value: DecisionStyle; label: string; hint: string }[] = [
+  { value: "decide_for_me", label: "Decide for me", hint: "One confident pick each time" },
+  { value: "show_options", label: "Show me a few options", hint: "2-3 to choose from" },
+  { value: "know_what_i_want", label: "I know what I want", hint: "Ask me for specifics" },
+];
+
+function PacingDecisionPicker({
+  pacing,
+  setPacing,
+  decisionStyle,
+  setDecisionStyle,
+}: {
+  pacing: Pacing;
+  setPacing: (p: Pacing) => void;
+  decisionStyle: DecisionStyle;
+  setDecisionStyle: (d: DecisionStyle) => void;
+}) {
+  return (
+    <>
+      <div className="mb-3.5">
+        <FieldLabel>Pacing (optional)</FieldLabel>
+        <div className="flex flex-col gap-1.5">
+          {PACING_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setPacing(o.value)}
+              className={`flex items-center justify-between rounded-[12px] border-[1.5px] px-3 py-2.5 text-left ${
+                pacing === o.value ? "border-accent bg-accent-light" : "border-border bg-surface"
+              }`}
+            >
+              <span className="text-[12px] font-semibold text-text">{o.label}</span>
+              <span className="text-[10px] text-text-light">{o.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mb-3.5">
+        <FieldLabel>How much should Voyager decide? (optional)</FieldLabel>
+        <div className="flex flex-col gap-1.5">
+          {DECISION_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setDecisionStyle(o.value)}
+              className={`flex items-center justify-between rounded-[12px] border-[1.5px] px-3 py-2.5 text-left ${
+                decisionStyle === o.value ? "border-accent bg-accent-light" : "border-border bg-surface"
+              }`}
+            >
+              <span className="text-[12px] font-semibold text-text">{o.label}</span>
+              <span className="text-[10px] text-text-light">{o.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Form2({
+  go,
+  pacing,
+  setPacing,
+  decisionStyle,
+  setDecisionStyle,
+  onFinish,
+}: {
+  go: (s: Screen) => void;
+  pacing: Pacing;
+  setPacing: (p: Pacing) => void;
+  decisionStyle: DecisionStyle;
+  setDecisionStyle: (d: DecisionStyle) => void;
+  onFinish: () => void;
+}) {
   const [budget, setBudget] = useState("Mid-range");
   const [style, setStyle] = useState("Relaxed");
   const [accom, setAccom] = useState("Hotel");
@@ -176,6 +288,12 @@ function Form2({ go }: { go: (s: Screen) => void }) {
         <ChipGroup label="Budget (optional)" hint="Default: mid-range" options={["Budget", "Mid-range", "Premium"]} value={budget} set={setBudget} />
         <ChipGroup label="Travel style (optional)" hint="Default: mixed" options={["Relaxed", "Cultural", "Adventure", "Foodie", "Mixed"]} value={style} set={setStyle} />
         <ChipGroup label="Accommodation (optional)" hint="Default: hotel" options={["Hotel", "Apartment", "Either"]} value={accom} set={setAccom} />
+        <PacingDecisionPicker
+          pacing={pacing}
+          setPacing={setPacing}
+          decisionStyle={decisionStyle}
+          setDecisionStyle={setDecisionStyle}
+        />
         <div className="mb-3.5">
           <FieldLabel>Anything specific? (optional)</FieldLabel>
           <div className="rounded-[16px] border-[1.5px] border-border bg-surface px-3.5 py-3 text-[12px] text-text-light">
@@ -188,7 +306,7 @@ function Form2({ go }: { go: (s: Screen) => void }) {
         >
           + Add more detail
         </button>
-        <Button full onClick={() => go("building")}>
+        <Button full onClick={onFinish}>
           Build my trip →
         </Button>
       </div>
@@ -196,7 +314,7 @@ function Form2({ go }: { go: (s: Screen) => void }) {
   );
 }
 
-function DetailedForm({ go }: { go: (s: Screen) => void }) {
+function DetailedForm({ go, onFinish }: { go: (s: Screen) => void; onFinish: () => void }) {
   return (
     <>
       <TopBar title="More detail" onBack={() => go("welcome")} step={1} total={1} />
@@ -211,7 +329,7 @@ function DetailedForm({ go }: { go: (s: Screen) => void }) {
         <ChipGroupStatic label="Occasion" options={["Anniversary", "Honeymoon", "Family holiday", "Solo", "Friends trip", "Birthday"]} />
         <LabeledInput label="Must-sees" placeholder="e.g. the Everglades, Eumundi Markets" />
         <LabeledInput label="Things to avoid" placeholder="e.g. crowds, long drives" />
-        <Button full onClick={() => go("building")}>
+        <Button full onClick={onFinish}>
           Build my trip →
         </Button>
       </div>
@@ -220,7 +338,13 @@ function DetailedForm({ go }: { go: (s: Screen) => void }) {
 }
 
 /* ---------- Conversation mode (real Claude) ---------- */
-function Conversation({ go }: { go: (s: Screen) => void }) {
+function Conversation({
+  go,
+  onFinish,
+}: {
+  go: (s: Screen) => void;
+  onFinish: (inferred: { pacing?: Pacing; decisionStyle?: DecisionStyle }) => void;
+}) {
   const GREETING =
     "Hi! Tell me about the trip you're thinking of — just describe it like you'd tell a travel agent. Where, when, who's going, and it's fine if you don't have all the details yet.";
   const [messages, setMessages] = useState<AskMessage[]>([
@@ -229,6 +353,7 @@ function Conversation({ go }: { go: (s: Screen) => void }) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const { preferences } = usePreferences();
 
   const examples = [
     "We'd love a week somewhere warm and relaxed in early November — thinking Noosa, just the two of us.",
@@ -251,7 +376,10 @@ function Conversation({ go }: { go: (s: Screen) => void }) {
       const res = await fetch("/api/conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({
+          messages: next,
+          preferences: hasAnyPreferences(preferences) ? preferences : undefined,
+        }),
       });
       if (!res.body) throw new Error("No body");
       const reader = res.body.getReader();
@@ -336,7 +464,13 @@ function Conversation({ go }: { go: (s: Screen) => void }) {
         {exchanges >= 2 && !streaming && (
           <div className="mt-2 text-center animate-fade-in">
             <button
-              onClick={() => go("building")}
+              onClick={() => {
+                const said = messages
+                  .filter((m) => m.role === "user")
+                  .map((m) => m.content)
+                  .join(" ");
+                onFinish(inferPacingAndDecisionStyle(said));
+              }}
               className="rounded-full bg-accent px-5 py-2.5 text-[12px] font-bold text-white"
             >
               Looks good — build my trip →

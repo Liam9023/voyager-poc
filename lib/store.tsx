@@ -7,6 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import type { Activity, Booking, DecisionStyle, Pacing, PlacedActivity } from "@/types";
 
 /**
  * TripContext — lightweight client state for the POC.
@@ -15,18 +16,30 @@ import {
 
 interface TripState {
   unlocked: boolean;
-  removedActivities: string[]; // activity ids the user removed/swapped
+  removedActivities: string[]; // activity ids the user removed
+  swappedActivities: Record<string, Activity>; // original activity id -> replacement (id preserved)
+  addedActivities: PlacedActivity[]; // brand-new activities the user added, any day
+  timeOverrides: Record<string, string>; // activity id -> new time_of_day (from conflict-fix proposals)
+  manualBookings: Booking[]; // hand-entered bookings (Bookings tab > Add manually)
   addons: string[]; // selected add-on keys
   extraBooked: string[]; // booking ids the user marked "booked"
   packed: string[]; // packing items ticked
+  pacing: Pacing;
+  decisionStyle: DecisionStyle;
 }
 
 const DEFAULT_STATE: TripState = {
   unlocked: false,
   removedActivities: [],
+  swappedActivities: {},
+  addedActivities: [],
+  timeOverrides: {},
+  manualBookings: [],
   addons: [],
   extraBooked: [],
   packed: [],
+  pacing: "balanced",
+  decisionStyle: "show_options",
 };
 
 const STORAGE_KEY = "voyager-noosa-state-v1";
@@ -37,9 +50,18 @@ interface TripContextValue extends TripState {
   reset: () => void;
   removeActivity: (id: string) => void;
   restoreActivity: (id: string) => void;
+  swapActivity: (id: string, replacement: Activity) => void;
+  undoSwap: (id: string) => void;
+  addActivity: (activity: PlacedActivity) => void;
+  removeAddedActivity: (id: string) => void;
+  updateAddedActivity: (id: string, patch: Partial<Activity>) => void;
+  setTimeOverride: (id: string, newTime: string) => void;
+  addManualBooking: (booking: Booking) => void;
   toggleAddon: (key: string) => void;
   markBooked: (id: string) => void;
   togglePacked: (item: string) => void;
+  setPacing: (p: Pacing) => void;
+  setDecisionStyle: (d: DecisionStyle) => void;
 }
 
 const TripContext = createContext<TripContextValue | null>(null);
@@ -83,6 +105,35 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         ...s,
         removedActivities: s.removedActivities.filter((x) => x !== id),
       })),
+    swapActivity: (id, replacement) =>
+      setState((s) => ({
+        ...s,
+        swappedActivities: { ...s.swappedActivities, [id]: replacement },
+      })),
+    undoSwap: (id) =>
+      setState((s) => {
+        const next = { ...s.swappedActivities };
+        delete next[id];
+        return { ...s, swappedActivities: next };
+      }),
+    addActivity: (activity) =>
+      setState((s) => ({ ...s, addedActivities: [...s.addedActivities, activity] })),
+    removeAddedActivity: (id) =>
+      setState((s) => ({
+        ...s,
+        addedActivities: s.addedActivities.filter((a) => a.id !== id),
+      })),
+    updateAddedActivity: (id, patch) =>
+      setState((s) => ({
+        ...s,
+        addedActivities: s.addedActivities.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+      })),
+    setTimeOverride: (id, newTime) =>
+      setState((s) => ({ ...s, timeOverrides: { ...s.timeOverrides, [id]: newTime } })),
+    addManualBooking: (booking) =>
+      setState((s) => ({ ...s, manualBookings: [...s.manualBookings, booking] })),
+    setPacing: (p) => setState((s) => ({ ...s, pacing: p })),
+    setDecisionStyle: (d) => setState((s) => ({ ...s, decisionStyle: d })),
     toggleAddon: (key) =>
       setState((s) => ({
         ...s,

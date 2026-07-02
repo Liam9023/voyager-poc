@@ -6,7 +6,7 @@ import Link from "next/link";
 import { NOOSA_ITINERARY as IT } from "@/lib/itinerary";
 import { useTrip } from "@/lib/store";
 import { NoHiddenFees, SectionLabel } from "@/components/ui";
-import ActivityRow from "@/components/ActivityRow";
+import DayCard from "@/components/DayCard";
 import AskPanel from "@/components/AskPanel";
 
 type Tab = "overview" | "sample" | "unlock";
@@ -236,9 +236,7 @@ function SampleDay({
 
       <SectionLabel>Your day</SectionLabel>
       <div className="mt-2.5">
-        {day.activities.map((a) => (
-          <ActivityRow key={a.id} activity={a} editable />
-        ))}
+        <DayCard day={day} tellMore={false} />
       </div>
 
       <div className="mt-2 flex items-center gap-2 rounded-[16px] bg-surface-alt px-3 py-3">

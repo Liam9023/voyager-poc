@@ -2,47 +2,99 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { Activity } from "@/types";
+import type { Activity, DecisionStyle } from "@/types";
 import { TYPE_ICON, TYPE_LABEL } from "@/components/ui";
-import { getAlternative, type Alternative } from "@/lib/alternatives";
+import { getSwapAlternatives, optionCountFor, type Alternative } from "@/lib/alternatives";
+import { buildLocationQuery, isLiveSearchable } from "@/lib/places-client";
+import { instagramSearchUrl } from "@/lib/social-links";
+import { bookingUrlForActivity } from "@/lib/deep-links";
 import { useTrip } from "@/lib/store";
+import AlternativesPicker from "@/components/AlternativesPicker";
+import BookLink from "@/components/BookLink";
+
+function applyAlternative(base: Activity, alt: Alternative): Activity {
+  return {
+    ...base,
+    title: alt.title,
+    description: alt.description,
+    type: alt.type,
+    estimated_cost_nzd: alt.cost_nzd ?? base.estimated_cost_nzd,
+    booking_required: alt.booking_required ?? base.booking_required,
+  };
+}
+
+function fromFreeText(base: Activity, text: string): Activity {
+  return {
+    ...base,
+    title: text,
+    description: "Added by you — Voyager doesn't have local detail on this one yet.",
+    estimated_cost_nzd: undefined,
+    booking_required: false,
+  };
+}
 
 export default function ActivityRow({
   activity,
+  dayNumber,
+  dayLocation,
+  source = "original",
+  swapped = false,
+  removed = false,
   editable = false,
   tellMore = false,
 }: {
   activity: Activity;
+  dayNumber: number;
+  dayLocation?: string;
+  source?: "original" | "added";
+  swapped?: boolean;
+  removed?: boolean;
   editable?: boolean;
   tellMore?: boolean;
 }) {
-  const { removedActivities, removeActivity, restoreActivity } = useTrip();
-  const [swap, setSwap] = useState<Alternative | null>(null);
-
-  const removed = removedActivities.includes(activity.id);
+  const { removeActivity, restoreActivity, swapActivity, undoSwap, removeAddedActivity, decisionStyle } =
+    useTrip();
+  const [swapping, setSwapping] = useState(false);
+  const liveQuery =
+    dayLocation && isLiveSearchable(activity.type) ? buildLocationQuery(activity.type, dayLocation) : undefined;
 
   if (removed) {
+    const pool = getSwapAlternatives(activity.id, activity.type, optionCountFor(decisionStyle));
     return (
-      <div className="mb-2.5 flex items-center justify-between rounded-[14px] border border-dashed border-border bg-surface-alt px-3 py-2.5">
-        <div className="text-[11px] text-text-light">
-          <span className="line-through">{activity.title}</span> removed
-          <div className="mt-0.5 text-[10px] text-secondary">
-            ✓ Voyager can suggest an alternative for this slot.
+      <div className="mb-2.5 rounded-[14px] border border-dashed border-border bg-surface-alt px-3 py-2.5">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] text-text-light">
+            <span className="line-through">{activity.title}</span> removed
           </div>
+          <button
+            onClick={() => restoreActivity(activity.id)}
+            className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface"
+          >
+            Undo
+          </button>
         </div>
-        <button
-          onClick={() => restoreActivity(activity.id)}
-          className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface"
-        >
-          Undo
-        </button>
+        <div className="mt-0.5 text-[10px] text-secondary">Voyager can fill this slot instead:</div>
+        <AlternativesPicker
+          pool={pool}
+          decisionStyle={decisionStyle}
+          liveQuery={liveQuery}
+          liveType={activity.type}
+          onPick={(alt) => {
+            restoreActivity(activity.id);
+            swapActivity(activity.id, applyAlternative(activity, alt));
+          }}
+          onFreeText={(text) => {
+            restoreActivity(activity.id);
+            swapActivity(activity.id, fromFreeText(activity, text));
+          }}
+          onCancel={() => {
+            /* nothing to do — Undo above already covers "keep it removed" */
+          }}
+          freeTextLabel="Or tell Voyager what should go here instead"
+        />
       </div>
     );
   }
-
-  const shown = swap
-    ? { ...activity, title: swap.title, description: swap.description, type: swap.type }
-    : activity;
 
   return (
     <div className="mb-3 flex gap-3">
@@ -56,20 +108,20 @@ export default function ActivityRow({
               : "border-[#7F543D1f] bg-accent-light/60"
           }`}
         >
-          {TYPE_ICON[shown.type]}
+          {TYPE_ICON[activity.type]}
         </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 pt-0.5">
         <div className="flex items-start justify-between gap-2">
-          <div className="text-[12.5px] font-bold leading-snug text-text">{shown.title}</div>
+          <div className="text-[12.5px] font-bold leading-snug text-text">{activity.title}</div>
         </div>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-text-mid">{shown.description}</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-text-mid">{activity.description}</p>
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-bold text-text-mid">
-            {TYPE_LABEL[shown.type]}
+            {TYPE_LABEL[activity.type]}
           </span>
           {activity.estimated_cost_nzd ? (
             <span className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-semibold text-text-mid">
@@ -77,14 +129,32 @@ export default function ActivityRow({
             </span>
           ) : null}
           {activity.booking_required && (
-            <span className="rounded-full bg-amber-light px-2 py-0.5 text-[9px] font-semibold text-amber">
-              Book ahead
-            </span>
+            <>
+              <span className="rounded-full bg-amber-light px-2 py-0.5 text-[9px] font-semibold text-amber">
+                Book ahead
+              </span>
+              <BookLink href={bookingUrlForActivity(activity, dayNumber)} />
+            </>
           )}
-          {swap && (
+          {swapped && (
             <span className="rounded-full bg-secondary-light px-2 py-0.5 text-[9px] font-bold text-secondary">
               ✓ Swapped by Voyager
             </span>
+          )}
+          {source === "added" && (
+            <span className="rounded-full bg-secondary-light px-2 py-0.5 text-[9px] font-bold text-secondary">
+              ✓ Added by you
+            </span>
+          )}
+          {isLiveSearchable(activity.type) && dayLocation && (
+            <a
+              href={instagramSearchUrl(activity.title, dayLocation)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-semibold text-text-mid hover:text-accent"
+            >
+              📸 See recent posts
+            </a>
           )}
         </div>
 
@@ -104,23 +174,26 @@ export default function ActivityRow({
             )}
             {editable && (
               <>
-                {swap ? (
-                  <button
-                    onClick={() => setSwap(null)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface-alt"
-                  >
-                    ↺ Undo swap
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setSwap(getAlternative(activity.id, activity.type))}
-                    className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface-alt"
-                  >
-                    ⇄ Swap
-                  </button>
-                )}
+                {source === "original" &&
+                  (swapped ? (
+                    <button
+                      onClick={() => undoSwap(activity.id)}
+                      className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface-alt"
+                    >
+                      ↺ Undo swap
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setSwapping((s) => !s)}
+                      className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface-alt"
+                    >
+                      ⇄ Swap
+                    </button>
+                  ))}
                 <button
-                  onClick={() => removeActivity(activity.id)}
+                  onClick={() =>
+                    source === "added" ? removeAddedActivity(activity.id) : removeActivity(activity.id)
+                  }
                   className="rounded-lg border border-border px-2.5 py-1 text-[10px] font-semibold text-text-mid hover:bg-surface-alt"
                 >
                   Remove
@@ -128,6 +201,25 @@ export default function ActivityRow({
               </>
             )}
           </div>
+        )}
+
+        {swapping && (
+          <AlternativesPicker
+            pool={getSwapAlternatives(activity.id, activity.type, optionCountFor(decisionStyle))}
+            decisionStyle={decisionStyle}
+            liveQuery={liveQuery}
+            liveType={activity.type}
+            onPick={(alt) => {
+              swapActivity(activity.id, applyAlternative(activity, alt));
+              setSwapping(false);
+            }}
+            onFreeText={(text) => {
+              swapActivity(activity.id, fromFreeText(activity, text));
+              setSwapping(false);
+            }}
+            onCancel={() => setSwapping(false)}
+            freeTextLabel="Tell Voyager what you'd like instead"
+          />
         )}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { TripProvider } from "@/lib/store";
+import { PreferencesProvider } from "@/lib/preferences-store";
 
 export const metadata: Metadata = {
   title: "Voyager — your travel expert",
@@ -23,12 +24,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-bg">
-        <TripProvider>
-          {/* Centred app column — mobile-first, holds cleanly at desktop widths */}
-          <div className="relative mx-auto flex min-h-screen w-full max-w-app flex-col bg-bg shadow-[0_0_60px_rgba(44,72,88,0.08)] md:border-x md:border-border">
-            {children}
-          </div>
-        </TripProvider>
+        <PreferencesProvider>
+          <TripProvider>
+            {/* Centred app column — mobile-first, holds cleanly at desktop widths */}
+            <div className="relative mx-auto flex min-h-screen w-full max-w-app flex-col bg-bg shadow-[0_0_60px_rgba(44,72,88,0.08)] md:border-x md:border-border">
+              {children}
+            </div>
+          </TripProvider>
+        </PreferencesProvider>
       </body>
     </html>
   );
