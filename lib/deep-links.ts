@@ -3,16 +3,19 @@ import type { Activity, Booking } from "@/types";
 
 /**
  * Real, correctly pre-filled booking deep links (POC_followup_prompt.md items 7 & 8).
- * Every category gets a genuinely working search/booking URL, never a placeholder button.
  * Provider names never appear in UI copy (CLAUDE.md rule 3) — the label is always "Book"/
  * "Flights"/"Hotels"/"Activities", only the destination URL differs.
  *
- * Only Booking.com, Viator and Google's own search/flights surfaces have publicly documented,
- * stable query-parameter formats we can construct without an API key or partner account —
- * so those are used directly. Everything else (dining reservations, taxi transfers, rail —
- * none of which appear in this itinerary, and Omio's search needs internal city IDs we can't
- * derive from a name) falls back to a general search link per item 7, rather than ship a
- * deep link we can't verify actually resolves.
+ * Only Booking.com, Viator and Google's own flights surface have publicly documented, stable
+ * query-parameter formats we can construct without an API key or partner account — so those
+ * are used directly for flight/hotel/activity types.
+ *
+ * Everything else (dining reservations, car hire, rail, transfers) has no such provider —
+ * live testing found the plain-Google-search fallback previously used for these looked broken
+ * and generic (item 10, folded into item 1 below). `bookingUrlForActivity`/`bookingUrlForBooking`
+ * return `null` for these types to signal the caller should resolve a real per-venue link
+ * instead (website → Google Maps listing → phone → no button at all) via `VenueBookAction`,
+ * using live Places data rather than a canned search URL.
  */
 
 const ORIGIN_CITY = "Auckland";
@@ -57,46 +60,56 @@ export function viatorUrl(activityTitle: string): string {
   return `https://www.viator.com/searchResults/all?text=${encodeURIComponent(q)}`;
 }
 
-/** Car hire — no generic API-free deep link exists, so a dated, located Google search. */
-export function carHireUrl(dayNumber: number): string {
-  const q = `car hire Sunshine Coast Airport ${dayDate(dayNumber)}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+/**
+ * A pre-filled query for resolving a car-hire venue via live Places lookup — used by
+ * `VenueBookAction`, not returned directly as a URL (item 1).
+ */
+export function carHireSearchQuery(dayNumber: number): string {
+  return `car hire ${DEST_AIRPORT_CITY} Airport ${dayDate(dayNumber)}`;
 }
 
-/** Item 7 fallback — for anything without clean provider coverage. */
-export function fallbackSearchUrl(title: string, context = DEST_REGION): string {
-  return `https://www.google.com/search?q=${encodeURIComponent(`${title} ${context}`)}`;
+/**
+ * Builds the Places text-search query `VenueBookAction` should resolve for a given
+ * activity/booking, for the categories with no clean provider deep link (item 1). Car hire
+ * gets its own airport-anchored query since the activity's own title ("Collect the hire car")
+ * isn't a venue name; everything else searches on the venue title plus its day's location.
+ */
+export function venueBookingQuery(type: Activity["type"] | Booking["type"], title: string, dayNumber: number, location?: string): string {
+  if (type === "car") return carHireSearchQuery(dayNumber);
+  return location ? `${title} ${location}` : `${title} ${DEST_REGION}`;
 }
 
-export function bookingUrlForActivity(activity: Activity, dayNumber: number): string {
+/**
+ * Real deep link for flight/hotel/activity — the categories with genuine provider coverage.
+ * `null` means there's no clean provider integration for this type; the caller should resolve
+ * a live per-venue link instead (see `VenueBookAction`) rather than fall back to a bare search.
+ */
+export function bookingUrlForActivity(activity: Activity, dayNumber: number): string | null {
   switch (activity.type) {
     case "flight":
       return googleFlightsUrl(dayNumber);
     case "hotel":
       return bookingComUrl();
-    case "car":
-      return carHireUrl(dayNumber);
     case "activity":
       return viatorUrl(activity.title);
+    case "car":
     case "rail":
     case "transfer":
     case "dining":
     default:
-      return fallbackSearchUrl(activity.title);
+      return null;
   }
 }
 
-export function bookingUrlForBooking(booking: Booking): string {
+export function bookingUrlForBooking(booking: Booking): string | null {
   switch (booking.type) {
     case "flight":
       return googleFlightsUrl(booking.day);
     case "hotel":
       return bookingComUrl();
-    case "car":
-      return carHireUrl(booking.day);
     case "activity":
       return viatorUrl(booking.title);
     default:
-      return fallbackSearchUrl(booking.title);
+      return null;
   }
 }

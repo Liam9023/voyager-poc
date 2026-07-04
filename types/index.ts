@@ -31,6 +31,11 @@ export interface Activity {
   highlight?: boolean;
   /** Coarse zone for travel-distance conflict checks; defaults to the day's own location if unset. */
   area?: Area;
+  /** Real Places data, only present when this activity came from a live swap/add pick (item 11). */
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  googleMapsUri?: string;
 }
 
 export interface Day {
@@ -144,4 +149,20 @@ export interface ConflictIssue {
     newTime: string;
     label: string;
   };
+}
+
+/**
+ * Group expense tracking — tracking and calculation only, like Splitwise. No real payment
+ * processing; nothing here ever moves money (POC_followup_prompt.md item 15).
+ */
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  /** Traveller name who paid (see lib/travellers.ts). */
+  paidBy: string;
+  date: string; // YYYY-MM-DD
+  category?: string;
+  /** Traveller names splitting this expense — defaults to all travellers, editable per expense. */
+  splitWith: string[];
 }

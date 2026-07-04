@@ -1,11 +1,14 @@
 /**
- * Google Places API (New) integration — real venue grounding for Voyager Ask and the
- * Swap/Add alternatives (POC_followup_prompt.md item 5).
+ * Google Places API (New) integration — real venue grounding for Voyager Ask, the
+ * Swap/Add alternatives, and the booking-fallback link resolution (POC_followup_prompt.md
+ * items 5 and 1).
  *
- * Cost discipline: uses a TIGHT field mask (name, rating, userRatingCount, priceLevel,
- * editorialSummary only) — never the default/broad field mask, which bills far more SKUs
- * per call. Also caches per-query results in memory for 30 minutes so repeat questions in
- * the same demo session don't re-bill the same search.
+ * Cost discipline: uses a TIGHT field mask — name, rating, userRatingCount, priceLevel,
+ * editorialSummary, websiteUri, googleMapsUri, nationalPhoneNumber — never the
+ * default/broad field mask, which bills far more SKUs per call. Notably this still excludes
+ * `reviews` (the priciest Enterprise+Atmosphere tier) — see item 11. Also caches per-query
+ * results in memory for 30 minutes so repeat questions in the same demo session don't re-bill
+ * the same search.
  *
  * Server-only — never import this from a client component.
  */
@@ -16,9 +19,13 @@ export interface PlaceResult {
   userRatingCount?: number;
   priceLevel?: string;
   editorialSummary?: string;
+  websiteUri?: string;
+  googleMapsUri?: string;
+  nationalPhoneNumber?: string;
 }
 
-const FIELD_MASK = "places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.editorialSummary";
+const FIELD_MASK =
+  "places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.editorialSummary,places.websiteUri,places.googleMapsUri,places.nationalPhoneNumber";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const cache = new Map<string, { at: number; results: PlaceResult[] }>();
 
@@ -57,6 +64,9 @@ export async function searchPlaces(query: string, maxResults = 5): Promise<Place
         userRatingCount?: number;
         priceLevel?: string;
         editorialSummary?: { text?: string };
+        websiteUri?: string;
+        googleMapsUri?: string;
+        nationalPhoneNumber?: string;
       }>;
     };
     const results: PlaceResult[] = (data.places ?? [])
@@ -67,6 +77,9 @@ export async function searchPlaces(query: string, maxResults = 5): Promise<Place
         userRatingCount: p.userRatingCount,
         priceLevel: p.priceLevel,
         editorialSummary: p.editorialSummary?.text,
+        websiteUri: p.websiteUri,
+        googleMapsUri: p.googleMapsUri,
+        nationalPhoneNumber: p.nationalPhoneNumber,
       }));
     cache.set(cacheKey, { at: Date.now(), results });
     return results;

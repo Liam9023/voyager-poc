@@ -7,7 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { Activity, Booking, DecisionStyle, Pacing, PlacedActivity } from "@/types";
+import type { Activity, Booking, DecisionStyle, Expense, Pacing, PlacedActivity } from "@/types";
 
 /**
  * TripContext — lightweight client state for the POC.
@@ -26,6 +26,7 @@ interface TripState {
   packed: string[]; // packing items ticked
   pacing: Pacing;
   decisionStyle: DecisionStyle;
+  expenses: Expense[]; // group expense ledger — item 15
 }
 
 const DEFAULT_STATE: TripState = {
@@ -40,6 +41,7 @@ const DEFAULT_STATE: TripState = {
   packed: [],
   pacing: "balanced",
   decisionStyle: "show_options",
+  expenses: [],
 };
 
 const STORAGE_KEY = "voyager-noosa-state-v1";
@@ -62,6 +64,8 @@ interface TripContextValue extends TripState {
   togglePacked: (item: string) => void;
   setPacing: (p: Pacing) => void;
   setDecisionStyle: (d: DecisionStyle) => void;
+  addExpense: (expense: Expense) => void;
+  removeExpense: (id: string) => void;
 }
 
 const TripContext = createContext<TripContextValue | null>(null);
@@ -152,6 +156,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           ? s.packed.filter((x) => x !== item)
           : [...s.packed, item],
       })),
+    addExpense: (expense) => setState((s) => ({ ...s, expenses: [...s.expenses, expense] })),
+    removeExpense: (id) =>
+      setState((s) => ({ ...s, expenses: s.expenses.filter((e) => e.id !== id) })),
   };
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>;

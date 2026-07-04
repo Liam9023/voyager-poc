@@ -6,11 +6,12 @@ import type { Activity, DecisionStyle } from "@/types";
 import { TYPE_ICON, TYPE_LABEL } from "@/components/ui";
 import { getSwapAlternatives, optionCountFor, type Alternative } from "@/lib/alternatives";
 import { buildLocationQuery, isLiveSearchable } from "@/lib/places-client";
-import { instagramSearchUrl } from "@/lib/social-links";
-import { bookingUrlForActivity } from "@/lib/deep-links";
+import { bookingUrlForActivity, venueBookingQuery } from "@/lib/deep-links";
 import { useTrip } from "@/lib/store";
 import AlternativesPicker from "@/components/AlternativesPicker";
 import BookLink from "@/components/BookLink";
+import VenueBookAction from "@/components/VenueBookAction";
+import VenueBadge from "@/components/VenueBadge";
 
 function applyAlternative(base: Activity, alt: Alternative): Activity {
   return {
@@ -20,6 +21,10 @@ function applyAlternative(base: Activity, alt: Alternative): Activity {
     type: alt.type,
     estimated_cost_nzd: alt.cost_nzd ?? base.estimated_cost_nzd,
     booking_required: alt.booking_required ?? base.booking_required,
+    rating: alt.rating,
+    userRatingCount: alt.userRatingCount,
+    priceLevel: alt.priceLevel,
+    googleMapsUri: alt.googleMapsUri,
   };
 }
 
@@ -30,6 +35,10 @@ function fromFreeText(base: Activity, text: string): Activity {
     description: "Added by you — Voyager doesn't have local detail on this one yet.",
     estimated_cost_nzd: undefined,
     booking_required: false,
+    rating: undefined,
+    userRatingCount: undefined,
+    priceLevel: undefined,
+    googleMapsUri: undefined,
   };
 }
 
@@ -57,6 +66,7 @@ export default function ActivityRow({
   const [swapping, setSwapping] = useState(false);
   const liveQuery =
     dayLocation && isLiveSearchable(activity.type) ? buildLocationQuery(activity.type, dayLocation) : undefined;
+  const bookingUrl = bookingUrlForActivity(activity, dayNumber);
 
   if (removed) {
     const pool = getSwapAlternatives(activity.id, activity.type, optionCountFor(decisionStyle));
@@ -118,6 +128,13 @@ export default function ActivityRow({
           <div className="text-[12.5px] font-bold leading-snug text-text">{activity.title}</div>
         </div>
         <p className="mt-0.5 text-[11px] leading-relaxed text-text-mid">{activity.description}</p>
+        <VenueBadge
+          rating={activity.rating}
+          userRatingCount={activity.userRatingCount}
+          priceLevel={activity.priceLevel}
+          googleMapsUri={activity.googleMapsUri}
+          className="mt-1"
+        />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-bold text-text-mid">
@@ -133,7 +150,13 @@ export default function ActivityRow({
               <span className="rounded-full bg-amber-light px-2 py-0.5 text-[9px] font-semibold text-amber">
                 Book ahead
               </span>
-              <BookLink href={bookingUrlForActivity(activity, dayNumber)} />
+              {bookingUrl ? (
+                <BookLink href={bookingUrl} />
+              ) : (
+                <VenueBookAction
+                  query={venueBookingQuery(activity.type, activity.title, dayNumber, dayLocation)}
+                />
+              )}
             </>
           )}
           {swapped && (
@@ -145,16 +168,6 @@ export default function ActivityRow({
             <span className="rounded-full bg-secondary-light px-2 py-0.5 text-[9px] font-bold text-secondary">
               ✓ Added by you
             </span>
-          )}
-          {isLiveSearchable(activity.type) && dayLocation && (
-            <a
-              href={instagramSearchUrl(activity.title, dayLocation)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-semibold text-text-mid hover:text-accent"
-            >
-              📸 See recent posts
-            </a>
           )}
         </div>
 

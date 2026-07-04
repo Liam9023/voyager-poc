@@ -104,11 +104,14 @@ export default function AskPanel({
   seed,
   elementContext,
   initialAssistant,
+  contextLabel,
 }: {
   mode: "preunlock" | "postunlock";
   seed?: string;
   elementContext?: string;
   initialAssistant?: string;
+  /** One-line label above the chat (e.g. "Day 8 · The Cotswolds") — a label, never a chat message. */
+  contextLabel?: string;
 }) {
   const { preferences } = usePreferences();
   const [messages, setMessages] = useState<AskMessage[]>(
@@ -201,7 +204,7 @@ export default function AskPanel({
             <div className="font-heading text-[15px] font-bold text-text">Voyager Ask</div>
             <div className="text-[10px] text-text-mid">
               Noosa Days ·{" "}
-              {mode === "preunlock" ? "Planning" : "Day 2 · Noosa Heads"}
+              {mode === "preunlock" ? "Planning" : (contextLabel ?? "Your Noosa trip")}
             </div>
           </div>
           {mode === "preunlock" ? (

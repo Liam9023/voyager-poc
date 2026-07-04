@@ -8,10 +8,14 @@ import { BOOKINGS } from "@/lib/bookings";
 import { useTrip } from "@/lib/store";
 import { SectionLabel, TYPE_ICON, TYPE_LABEL } from "@/components/ui";
 import DayCard from "@/components/DayCard";
+import DayHeroPhoto from "@/components/DayHeroPhoto";
 import AskPanel from "@/components/AskPanel";
 import BookLink from "@/components/BookLink";
-import { bookingUrlForBooking } from "@/lib/deep-links";
-import type { ActivityType, Booking } from "@/types";
+import VenueBookAction from "@/components/VenueBookAction";
+import { bookingUrlForBooking, venueBookingQuery } from "@/lib/deep-links";
+import { TRIP_TRAVELLERS } from "@/lib/travellers";
+import { computeBalances } from "@/lib/expenses";
+import type { ActivityType, Booking, Expense } from "@/types";
 
 type Tab = "itinerary" | "bookings" | "ask" | "trip";
 
@@ -138,6 +142,7 @@ function ItineraryTab() {
             key={d.day_number}
             className="mb-2.5 overflow-hidden rounded-[16px] border border-border bg-surface"
           >
+            <DayHeroPhoto query={`${d.location}, Queensland, Australia`} alt={d.title} />
             <div className="flex w-full items-center justify-between px-3.5 py-3">
               <button
                 onClick={() => setOpen(isOpen ? -1 : d.day_number)}
@@ -198,6 +203,8 @@ function BookingsTab() {
 
   function Card({ b }: { b: (typeof allBookings)[number] }) {
     const done = isConfirmed(b);
+    const bookingUrl = bookingUrlForBooking(b);
+    const location = IT.days[b.day - 1]?.location;
     return (
       <div
         className={`mb-2 flex items-start gap-2.5 rounded-[14px] border px-3 py-2.5 ${
@@ -232,13 +239,16 @@ function BookingsTab() {
             )
           )}
         </div>
-        {!done && (
-          <BookLink
-            href={bookingUrlForBooking(b)}
-            onBook={() => markBooked(b.id)}
-            className="self-center"
-          />
-        )}
+        {!done &&
+          (bookingUrl ? (
+            <BookLink href={bookingUrl} onBook={() => markBooked(b.id)} className="self-center" />
+          ) : (
+            <VenueBookAction
+              query={venueBookingQuery(b.type, b.title, b.day, location)}
+              onBook={() => markBooked(b.id)}
+              className="self-center"
+            />
+          ))}
       </div>
     );
   }
@@ -497,30 +507,37 @@ function AddManualBooking({ onDone }: { onDone: () => void }) {
 
 /* ---------------- Ask tab ---------------- */
 function AskTab({ about, aboutDay }: { about: string | null; aboutDay: string | null }) {
-  const activity = about
-    ? IT.days.flatMap((d) => d.activities).find((a) => a.id === about)
-    : undefined;
+  const activityDay = about ? IT.days.find((d) => d.activities.some((a) => a.id === about)) : undefined;
+  const activity = activityDay?.activities.find((a) => a.id === about);
   const day = !activity && aboutDay ? IT.days.find((d) => d.day_number === Number(aboutDay)) : undefined;
 
-  const seed = activity
-    ? `Tell me more about ${activity.title}.`
-    : day
-      ? `What should I know about Day ${day.day_number} — ${day.title}?`
-      : undefined;
+  // "Tell me more" fires a real question straight away — that's what the button promises.
+  // "Ask about this day" (item 12) does NOT: the day's detail goes in invisibly as
+  // `elementContext` below, and Voyager just opens with a short natural line instead of
+  // dumping the day's contents as a fake user message and immediately calling the API.
+  const seed = activity ? `Tell me more about ${activity.title}.` : undefined;
+  const initialAssistant = day ? `What's on your mind for ${day.title}?` : undefined;
   const elementContext = activity
     ? `${activity.title} (${TYPE_LABEL[activity.type]}) — ${activity.description}`
     : day
       ? `Day ${day.day_number} (${day.weekday} ${day.date}) — ${day.title}, ${day.location}. Planned: ${day.activities.map((a) => a.title).join("; ")}.`
       : undefined;
+  const contextLabel = activity && activityDay
+    ? `Day ${activityDay.day_number} · ${activity.title}`
+    : day
+      ? `Day ${day.day_number} · ${day.location}`
+      : undefined;
 
-  // Re-mount AskPanel when the target changes so the seed re-fires.
+  // Re-mount AskPanel when the target changes so the seed/opener re-fires.
   return (
     <div className="h-full">
       <AskPanel
         key={about ?? aboutDay ?? "open"}
         mode="postunlock"
         seed={seed}
+        initialAssistant={initialAssistant}
         elementContext={elementContext}
+        contextLabel={contextLabel}
       />
     </div>
   );
@@ -528,7 +545,7 @@ function AskTab({ about, aboutDay }: { about: string | null; aboutDay: string | 
 
 /* ---------------- Trip tools tab ---------------- */
 function TripToolsTab() {
-  const [section, setSection] = useState<"alerts" | "packing" | "tools" | "settings">("alerts");
+  const [section, setSection] = useState<"alerts" | "packing" | "expenses" | "tools" | "settings">("alerts");
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 border-b border-border bg-surface">
@@ -536,6 +553,7 @@ function TripToolsTab() {
           [
             ["alerts", "🔔 Alerts"],
             ["packing", "🧳 Packing"],
+            ["expenses", "💰 Expenses"],
             ["tools", "🛠️ Tools"],
             ["settings", "⚙️ Settings"],
           ] as [typeof section, string][]
@@ -554,6 +572,7 @@ function TripToolsTab() {
       <div className="flex-1 overflow-y-auto px-3.5 py-3">
         {section === "alerts" && <Alerts />}
         {section === "packing" && <Packing />}
+        {section === "expenses" && <Expenses />}
         {section === "tools" && <Tools />}
         {section === "settings" && <Settings />}
       </div>
@@ -675,6 +694,236 @@ function Packing() {
         📱 Share list with travel companion
       </button>
     </>
+  );
+}
+
+const EXPENSE_CATEGORIES = ["Food & drink", "Activities", "Transport", "Accommodation", "Other"];
+
+function Expenses() {
+  const { expenses, addExpense, removeExpense } = useTrip();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const balances = computeBalances(expenses, TRIP_TRAVELLERS);
+  const sorted = [...expenses].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return (
+    <>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {balances.map((b) => (
+          <div key={b.name} className="rounded-[14px] border border-border bg-surface p-2.5">
+            <div className="text-[11px] font-bold text-text">{b.name}</div>
+            <div className="mt-1 flex justify-between text-[9px] text-text-light">
+              <span>Paid</span>
+              <span className="font-semibold text-text-mid">${b.paid.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-[9px] text-text-light">
+              <span>Owes</span>
+              <span className="font-semibold text-text-mid">${b.owed.toFixed(2)}</span>
+            </div>
+            <div
+              className={`mt-1 rounded-[8px] px-1.5 py-1 text-center text-[10px] font-bold ${
+                b.net > 0.005
+                  ? "bg-green-light text-secondary"
+                  : b.net < -0.005
+                    ? "bg-amber-light text-amber"
+                    : "bg-tag text-text-mid"
+              }`}
+            >
+              {b.net > 0.005
+                ? `Is owed $${b.net.toFixed(2)}`
+                : b.net < -0.005
+                  ? `Owes $${Math.abs(b.net).toFixed(2)}`
+                  : "Settled up"}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-2 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">
+        Group ledger — tracking only, no money moves
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="mb-2.5 rounded-[14px] border border-dashed border-border py-6 text-center text-[11px] text-text-light">
+          No expenses logged yet.
+        </div>
+      ) : (
+        sorted.map((e) => (
+          <div
+            key={e.id}
+            className="mb-2 flex items-start justify-between gap-2 rounded-[14px] border border-border bg-surface px-3 py-2.5"
+          >
+            <div className="flex-1">
+              <div className="text-[12px] font-bold text-text">{e.title}</div>
+              <div className="text-[10px] text-text-mid">
+                {e.paidBy} paid · {e.date}
+                {e.category ? ` · ${e.category}` : ""}
+              </div>
+              <div className="mt-0.5 text-[9px] text-text-light">
+                Split: {e.splitWith.join(", ")}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="font-heading text-[13px] font-bold text-text">${e.amount.toFixed(2)}</div>
+              <button
+                onClick={() => removeExpense(e.id)}
+                className="mt-1 text-[9px] font-semibold text-text-light hover:text-danger"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {showAddForm ? (
+        <AddExpenseForm onDone={() => setShowAddForm(false)} onAdd={addExpense} />
+      ) : (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-[14px] border border-dashed border-accent bg-accent-light/50 py-2.5 text-[11px] font-bold text-accent transition-colors hover:bg-accent-light"
+        >
+          ＋ Add expense
+        </button>
+      )}
+    </>
+  );
+}
+
+function AddExpenseForm({
+  onDone,
+  onAdd,
+}: {
+  onDone: () => void;
+  onAdd: (expense: Expense) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [amount, setAmount] = useState("");
+  const [paidBy, setPaidBy] = useState<string>(TRIP_TRAVELLERS[0]);
+  const [date, setDate] = useState(IT.start_date);
+  const [category, setCategory] = useState<string>("");
+  const [splitWith, setSplitWith] = useState<string[]>([...TRIP_TRAVELLERS]);
+
+  function toggleSplit(name: string) {
+    setSplitWith((s) =>
+      s.includes(name) ? s.filter((x) => x !== name) : [...s, name],
+    );
+  }
+
+  function submit() {
+    const value = Number(amount);
+    if (!title.trim() || !value || value <= 0 || splitWith.length === 0) return;
+    onAdd({
+      id: `exp-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+      title: title.trim(),
+      amount: value,
+      paidBy,
+      date,
+      category: category || undefined,
+      splitWith,
+    });
+    onDone();
+  }
+
+  return (
+    <div className="mt-1 rounded-[16px] border border-accent bg-accent-light/40 p-3 animate-fade-in-fast">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] font-bold text-text">Add an expense</div>
+        <button onClick={onDone} className="text-[11px] text-text-light">
+          ✕
+        </button>
+      </div>
+
+      <div className="mb-2 flex gap-1.5">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="e.g. Dinner at Locale"
+          className="flex-1 rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+        <input
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="$0.00"
+          className="w-24 rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+      </div>
+
+      <div className="mb-2">
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">Who paid</div>
+        <div className="flex flex-wrap gap-1.5">
+          {TRIP_TRAVELLERS.map((name) => (
+            <button
+              key={name}
+              onClick={() => setPaidBy(name)}
+              className={`rounded-full px-2.5 py-1 text-[10.5px] font-semibold ${
+                paidBy === name ? "bg-accent text-white" : "bg-tag text-text-mid"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-2">
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">
+          Split between
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {TRIP_TRAVELLERS.map((name) => (
+            <button
+              key={name}
+              onClick={() => toggleSplit(name)}
+              className={`rounded-full px-2.5 py-1 text-[10.5px] font-semibold ${
+                splitWith.includes(name) ? "bg-secondary text-white" : "bg-tag text-text-mid"
+              }`}
+            >
+              {splitWith.includes(name) ? "✓ " : ""}
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-2 flex gap-1.5">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="flex-1 rounded-[10px] border-[1.5px] border-border bg-surface px-2.5 py-2 text-[11.5px] outline-none focus:border-accent"
+        />
+      </div>
+
+      <div className="mb-3">
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.06em] text-text-light">
+          Category (optional)
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {EXPENSE_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCategory((cur) => (cur === c ? "" : c))}
+              className={`rounded-full px-2.5 py-1 text-[10.5px] font-semibold ${
+                category === c ? "bg-accent text-white" : "bg-tag text-text-mid"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <button
+        onClick={submit}
+        disabled={!title.trim() || !Number(amount) || splitWith.length === 0}
+        className="w-full rounded-[12px] bg-accent py-2.5 text-[11px] font-bold text-white disabled:opacity-40"
+      >
+        Add expense
+      </button>
+    </div>
   );
 }
 

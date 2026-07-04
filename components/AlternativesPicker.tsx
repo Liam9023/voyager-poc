@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ActivityType, DecisionStyle } from "@/types";
 import type { Alternative } from "@/lib/alternatives";
 import { fetchLiveAlternatives, isLiveSearchable } from "@/lib/places-client";
+import VenueBadge from "@/components/VenueBadge";
 
 /**
  * Shared "what should go here instead" picker — used by Swap, Remove's suggested
@@ -82,14 +83,16 @@ export default function AlternativesPicker({
         {showCurated && (
           <div className="mt-1.5 flex flex-col gap-1.5">
             {pool.slice(0, 2).map((alt, i) => (
-              <button
+              <div
                 key={i}
-                onClick={() => onPick(alt)}
-                className="rounded-[10px] border border-border bg-tag px-2.5 py-2 text-left transition-colors hover:border-accent"
+                className="rounded-[10px] border border-border bg-tag px-2.5 py-2 transition-colors hover:border-accent"
               >
-                <div className="text-[11px] font-bold text-text">{alt.title}</div>
-                <div className="text-[10px] leading-snug text-text-mid">{alt.description}</div>
-              </button>
+                <button onClick={() => onPick(alt)} className="w-full text-left">
+                  <div className="text-[11px] font-bold text-text">{alt.title}</div>
+                  <div className="text-[10px] leading-snug text-text-mid">{alt.description}</div>
+                </button>
+                <VenueBadge {...alt} className="mt-1" />
+              </div>
             ))}
           </div>
         )}
@@ -110,6 +113,7 @@ export default function AlternativesPicker({
           </div>
           <div className="text-[12px] font-bold text-text">{alt.title}</div>
           <div className="mt-0.5 text-[10.5px] leading-snug text-text-mid">{alt.description}</div>
+          <VenueBadge {...alt} className="mt-1" />
         </div>
         <div className="mt-1.5 flex gap-1.5">
           <button
@@ -141,14 +145,16 @@ export default function AlternativesPicker({
   return (
     <div className="mt-2 flex flex-col gap-1.5 animate-fade-in-fast">
       {pool.slice(0, 3).map((alt, i) => (
-        <button
+        <div
           key={i}
-          onClick={() => onPick(alt)}
-          className="rounded-[12px] border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:border-accent"
+          className="rounded-[12px] border border-border bg-surface px-3 py-2.5 transition-colors hover:border-accent"
         >
-          <div className="text-[12px] font-bold text-text">{alt.title}</div>
-          <div className="mt-0.5 text-[10.5px] leading-snug text-text-mid">{alt.description}</div>
-        </button>
+          <button onClick={() => onPick(alt)} className="w-full text-left">
+            <div className="text-[12px] font-bold text-text">{alt.title}</div>
+            <div className="mt-0.5 text-[10.5px] leading-snug text-text-mid">{alt.description}</div>
+          </button>
+          <VenueBadge {...alt} className="mt-1" />
+        </div>
       ))}
       <button
         onClick={onCancel}

@@ -3,7 +3,6 @@
 import type { ActivityType } from "@/types";
 import type { Alternative } from "@/lib/alternatives";
 import type { PlaceResult } from "@/lib/places-service";
-import { priceLevelLabelClient } from "@/lib/places-format";
 
 // Only these categories are meaningfully Places-searchable — logistics (flight/hotel/car/
 // rail/transfer) stay on curated content.
@@ -20,12 +19,15 @@ export function buildLocationQuery(type: ActivityType, location: string): string
 }
 
 function toAlternative(p: PlaceResult, type: ActivityType): Alternative {
-  const bits: string[] = [];
-  if (p.rating) bits.push(`${p.rating}★${p.userRatingCount ? ` (${p.userRatingCount} reviews)` : ""}`);
-  const price = priceLevelLabelClient(p.priceLevel);
-  if (price) bits.push(price);
-  const description = p.editorialSummary || (bits.length ? bits.join(" · ") : "Recommended nearby.");
-  return { title: p.name, description: bits.length && p.editorialSummary ? `${p.editorialSummary} (${bits.join(" · ")})` : description, type };
+  return {
+    title: p.name,
+    description: p.editorialSummary || "Recommended nearby.",
+    type,
+    rating: p.rating,
+    userRatingCount: p.userRatingCount,
+    priceLevel: p.priceLevel,
+    googleMapsUri: p.googleMapsUri,
+  };
 }
 
 /** Fetches live, real-venue alternatives. Returns [] on any failure — caller keeps its curated fallback. */
@@ -41,5 +43,26 @@ export async function fetchLiveAlternatives(query: string, type: ActivityType, c
     return (data.results ?? []).map((p) => toAlternative(p, type));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Looks up the single best-matching real venue for a booking-fallback decision
+ * (POC_followup_prompt.md item 1) — used by `VenueBookAction` to find a website/Maps
+ * listing/phone number for categories with no clean provider deep link. Returns null on any
+ * failure or no match; caller shows no booking action rather than a fake one.
+ */
+export async function fetchVenueLookup(query: string): Promise<PlaceResult | null> {
+  try {
+    const res = await fetch("/api/places-alternatives", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, count: 1 }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { results: PlaceResult[] };
+    return data.results?.[0] ?? null;
+  } catch {
+    return null;
   }
 }

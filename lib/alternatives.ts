@@ -13,6 +13,11 @@ export interface Alternative {
   type: ActivityType;
   cost_nzd?: number;
   booking_required?: boolean;
+  /** Real Places data — only set for live results, never for curated/hand-authored picks (item 11). */
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  googleMapsUri?: string;
 }
 
 // Swap-in-place options, keyed by the activity id being swapped. Ordered best-first —
