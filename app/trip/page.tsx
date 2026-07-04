@@ -9,6 +9,7 @@ import { useTrip } from "@/lib/store";
 import { SectionLabel, TYPE_ICON, TYPE_LABEL } from "@/components/ui";
 import DayCard from "@/components/DayCard";
 import DayHeroPhoto from "@/components/DayHeroPhoto";
+import { DAY_PHOTO_QUERIES } from "@/lib/day-photo-queries";
 import AskPanel from "@/components/AskPanel";
 import BookLink from "@/components/BookLink";
 import VenueBookAction from "@/components/VenueBookAction";
@@ -142,7 +143,7 @@ function ItineraryTab() {
             key={d.day_number}
             className="mb-2.5 overflow-hidden rounded-[16px] border border-border bg-surface"
           >
-            <DayHeroPhoto query={`${d.location}, Queensland, Australia`} alt={d.title} />
+            <DayHeroPhoto query={DAY_PHOTO_QUERIES[d.day_number] ?? null} alt={d.title} />
             <div className="flex w-full items-center justify-between px-3.5 py-3">
               <button
                 onClick={() => setOpen(isOpen ? -1 : d.day_number)}

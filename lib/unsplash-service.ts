@@ -18,8 +18,13 @@ export interface UnsplashPhoto {
   downloadLocation?: string;
 }
 
+// A genuine "no results for this query" is cached for a full day — the query itself just
+// doesn't match anything, that won't change on retry. A failed/rate-limited API call gets a
+// much shorter negative cache so a transient blip (or an hourly rate-limit reset) doesn't
+// black out a day's photo for 24 hours.
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const cache = new Map<string, { at: number; photo: UnsplashPhoto | null }>();
+const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000;
+const cache = new Map<string, { at: number; ttl: number; photo: UnsplashPhoto | null }>();
 
 export function unsplashConfigured(): boolean {
   return Boolean(process.env.UNSPLASH_ACCESS_KEY);
@@ -40,7 +45,7 @@ export async function searchDayPhoto(query: string): Promise<UnsplashPhoto | nul
 
   const cacheKey = query.trim().toLowerCase();
   const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.photo;
+  if (cached && Date.now() - cached.at < cached.ttl) return cached.photo;
 
   try {
     const res = await fetch(
@@ -48,13 +53,15 @@ export async function searchDayPhoto(query: string): Promise<UnsplashPhoto | nul
       { headers: { Authorization: `Client-ID ${accessKey}` } },
     );
     if (!res.ok) {
-      cache.set(cacheKey, { at: Date.now(), photo: null });
+      // Transient failure (rate limit, 5xx, etc.) — don't let a short-lived problem look like
+      // "this query has no photo" for a full day.
+      cache.set(cacheKey, { at: Date.now(), ttl: FAILURE_CACHE_TTL_MS, photo: null });
       return null;
     }
     const data = (await res.json()) as UnsplashSearchResult;
     const first = data.results?.[0];
     if (!first?.urls?.regular && !first?.urls?.small) {
-      cache.set(cacheKey, { at: Date.now(), photo: null });
+      cache.set(cacheKey, { at: Date.now(), ttl: CACHE_TTL_MS, photo: null });
       return null;
     }
     const photo: UnsplashPhoto = {
@@ -64,9 +71,10 @@ export async function searchDayPhoto(query: string): Promise<UnsplashPhoto | nul
       photographerProfileUrl: first.user?.links?.html ?? "https://unsplash.com",
       downloadLocation: first.links?.download_location,
     };
-    cache.set(cacheKey, { at: Date.now(), photo });
+    cache.set(cacheKey, { at: Date.now(), ttl: CACHE_TTL_MS, photo });
     return photo;
   } catch {
+    cache.set(cacheKey, { at: Date.now(), ttl: FAILURE_CACHE_TTL_MS, photo: null });
     return null;
   }
 }
