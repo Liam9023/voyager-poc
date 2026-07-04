@@ -11,7 +11,7 @@ import { useTrip } from "@/lib/store";
 import AlternativesPicker from "@/components/AlternativesPicker";
 import BookLink from "@/components/BookLink";
 import VenueBookAction from "@/components/VenueBookAction";
-import VenueBadge from "@/components/VenueBadge";
+import VenueBadgeAuto from "@/components/VenueBadgeAuto";
 
 function applyAlternative(base: Activity, alt: Alternative): Activity {
   return {
@@ -128,13 +128,7 @@ export default function ActivityRow({
           <div className="text-[12.5px] font-bold leading-snug text-text">{activity.title}</div>
         </div>
         <p className="mt-0.5 text-[11px] leading-relaxed text-text-mid">{activity.description}</p>
-        <VenueBadge
-          rating={activity.rating}
-          userRatingCount={activity.userRatingCount}
-          priceLevel={activity.priceLevel}
-          googleMapsUri={activity.googleMapsUri}
-          className="mt-1"
-        />
+        <VenueBadgeAuto activity={activity} dayLocation={dayLocation} className="mt-1" />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-tag px-2 py-0.5 text-[9px] font-bold text-text-mid">
